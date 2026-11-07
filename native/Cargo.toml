@@ -1,0 +1,19 @@
+[package]
+name = "almacen-local"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felipe Bustos"]
+description = "Aplicación local de escritorio con Rust, Slint y SQLite"
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-2"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+thiserror = "2"
+directories = "6"
+
+[build-dependencies]
+slint-build = "=1.18.1"
+
+[profile.release]
+lto = "thin"
+strip = true

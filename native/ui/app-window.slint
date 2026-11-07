@@ -1,0 +1,454 @@
+
+import { ScrollView, AboutSlint, Palette } from "std-widgets.slint";
+
+export struct ProductRow { id: string, name: string, category: string }
+export struct CategoryRow { id: string, name: string, depth: int, has-children: bool, expanded: bool }
+
+// Escape se comparte entre controles reutilizados y el dialogo que los contiene.
+export global DialogKeys { callback dismiss(); }
+
+// Autor: Felipe Bustos | Fecha: 2026-11-01
+// Controles oscuros locales: teclado, foco visible y areas tactiles de 48px.
+component Action inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> primary: false;
+    in property <bool> quiet: false;
+    in property <bool> danger: false;
+    in property <bool> left-align: false;
+    in property <bool> chevron: false;
+    in property <bool> expanded: false;
+    in property <string> accessible-name: root.text;
+    callback clicked();
+    min-width: root.chevron ? 44px : label.preferred-width + 28px;
+    min-height: 48px;
+    max-height: 48px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    border-radius: root.primary ? 24px : 10px;
+    background: !root.enabled ? #292929 : root.primary ? (touch.has-hover ? #dddddd : #ffffff) : touch.has-hover ? #383838 : root.quiet ? transparent : #303030;
+    border-width: focus.has-focus ? 2px : root.quiet || root.primary ? 0px : 1px;
+    border-color: focus.has-focus ? #b4a0ef : #464646;
+    opacity: 1;
+    forward-focus: focus;
+    accessible-role: button;
+    accessible-label: root.accessible-name;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+    label := Text {
+        visible: !root.chevron;
+        x: 14px; width: parent.width - 28px;
+        vertical-alignment: center;
+        horizontal-alignment: root.left-align ? left : center;
+        text: root.text; font-size: 17px;
+        color: !root.enabled ? #999999 : root.primary ? #242424 : root.danger ? #ffb4ab : #f2f2f2;
+    }
+    if root.chevron: Path {
+        x: (parent.width - 12px) / 2; y: (parent.height - 12px) / 2;
+        width: 12px; height: 12px;
+        commands: root.expanded ? "M 1 3 L 6 8 L 11 3" : "M 3 1 L 8 6 L 3 11";
+        stroke: root.enabled ? #bebebe : #777777; stroke-width: 1.6px;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { focus.focus(); root.clicked(); }
+    }
+    focus := FocusScope {
+        width: 0px; enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { DialogKeys.dismiss(); return accept; }
+            if (event.text == Key.Return || event.text == Key.Space) { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+}
+
+component Entry inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> enabled: true;
+    in property <bool> search: false;
+    callback edited();
+    callback accepted();
+    min-height: 56px;
+    max-height: 56px;
+    min-width: 0px;
+    border-radius: 16px;
+    background: #151515;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? #a899d7 : #151515;
+    forward-focus: input;
+    if root.search: Rectangle {
+        x: 18px; y: 18px; width: 14px; height: 14px;
+        border-radius: 7px; border-width: 1.5px; border-color: #bbbbbb;
+    }
+    if root.search: Path {
+        x: 30px; y: 30px; width: 8px; height: 8px;
+        commands: "M 0 0 L 7 7"; stroke: #bbbbbb; stroke-width: 1.5px;
+    }
+    Text {
+        x: root.search ? 48px : 16px; width: parent.width - self.x - 16px;
+        vertical-alignment: center;
+        text: root.placeholder; visible: root.text == "";
+        color: #b6b6b6; font-size: 18px; overflow: elide;
+    }
+    input-keys := FocusScope {
+      width: parent.width; height: parent.height;
+      key-pressed(event) => {
+          if (event.text == Key.Escape) { DialogKeys.dismiss(); return accept; }
+          return reject;
+      }
+      input := TextInput {
+        x: root.search ? 48px : 16px; y: 14px;
+        width: parent.width - self.x - 16px; height: 28px;
+        text <=> root.text; enabled: root.enabled; single-line: true;
+        color: #f5f5f5; font-size: 18px;
+        selection-background-color: #555077; selection-foreground-color: #ffffff;
+        accessible-label: root.placeholder;
+        edited => { root.edited(); }
+        accepted => { root.accepted(); }
+      }
+    }
+}
+
+component TreeItem inherits Rectangle {
+    in property <CategoryRow> item;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    callback choose();
+    callback toggle();
+    min-width: 0px;
+    height: max(52px, label.preferred-height + 18px);
+    vertical-stretch: 0;
+    border-radius: 12px;
+    background: root.selected ? #2b3443 : name-touch.has-hover ? #303030 : transparent;
+    border-width: name-focus.has-focus ? 2px : 0px;
+    border-color: #ae99ed;
+    if root.item.has-children: Action {
+        x: root.item.depth * 16px;
+        width: 44px; y: (parent.height - self.height) / 2;
+        text: ""; chevron: true; expanded: root.item.expanded;
+        accessible-name: (root.item.expanded ? "Contraer " : "Expandir ") + root.item.name;
+        quiet: true; enabled: root.enabled;
+        clicked => { root.toggle(); }
+    }
+    if root.selected && !root.item.has-children: Text {
+        x: root.item.depth * 16px + 10px; width: 22px;
+        text: "✓"; color: #b39aed; font-size: 18px; vertical-alignment: center;
+    }
+    label := Text {
+        x: root.item.depth * 16px + 44px;
+        width: max(20px, parent.width - self.x - 12px);
+        y: (parent.height - self.height) / 2;
+        text: root.item.name; wrap: word-wrap;
+        color: #f2f2f2; font-size: 18px;
+        font-weight: root.selected || root.item.depth == 0 ? 600 : 400;
+    }
+    name-touch := TouchArea {
+        x: root.item.depth * 16px + 44px;
+        width: parent.width - self.x; enabled: root.enabled;
+        clicked => { name-focus.focus(); root.choose(); }
+    }
+    name-focus := FocusScope {
+        width: 0px; enabled: root.enabled;
+        accessible-role: button; accessible-label: "Seleccionar " + root.item.name;
+        accessible-action-default => { if (root.enabled) { root.choose(); } }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { DialogKeys.dismiss(); return accept; }
+            if (event.text == Key.Return || event.text == Key.Space) { root.choose(); return accept; }
+            return reject;
+        }
+    }
+}
+
+// Autor: Felipe Bustos | Fecha: 2026-11-01
+// Rediseno aprobado: presentacion oscura, sin cambios de esquema ni datos de ejemplo.
+export component AppWindow inherits Window {
+    title: "Almacén Local · Productos";
+    preferred-width: 1120px;
+    preferred-height: 730px;
+    min-width: 960px;
+    min-height: 650px;
+    background: #191919;
+    default-font-size: 18px;
+    default-font-family: "Segoe UI";
+    init => { Palette.color-scheme = dark; }
+    in property <string> database-path;
+    in property <string> status;
+    in property <bool> busy: false;
+    in property <bool> has-error: false;
+    in property <[ProductRow]> products;
+    in property <[CategoryRow]> categories;
+    in property <int> product-count;
+    in property <int> category-count;
+    in property <string> category-id;
+    in property <string> category-title: "Todos los productos";
+    in property <string> category-label: "Todos los productos";
+    in property <string> selected-id;
+    in property <string> selected-description;
+    in property <string> selected-name;
+    in property <string> selected-category-path;
+    in property <string> selected-category-id;
+    in property <int> page-number: 1;
+    in property <bool> has-next;
+    in-out property <string> product-name;
+    in-out property <string> search-text;
+    in-out property <bool> category-editor-open: false;
+    in property <[CategoryRow]> editor-categories;
+    in property <string> editor-category-id;
+    in property <string> editor-category-title;
+    in-out property <bool> new-product-open: false;
+    private property <string> pending-id;
+    private property <string> pending-name;
+    private property <bool> configuration-open: false;
+    private property <bool> show-about: false;
+    private property <bool> confirm-clear: false;
+    private property <bool> modal-open: root.category-editor-open || root.new-product-open || root.configuration-open || root.pending-id != "";
+    private property <bool> can-act: !root.busy && !root.modal-open;
+    callback check-storage();
+    callback refresh-products();
+    callback search-products();
+    callback search-edited();
+    callback add-product();
+    callback deactivate-product(string);
+    callback select-product(string);
+    callback choose-category(string);
+    callback toggle-category(string);
+    callback change-page(int);
+    callback storage-result();
+    callback update-product-category(string);
+    callback open-category-editor();
+    callback choose-editor-category(string);
+    callback toggle-editor-category(string);
+    public function focus-modal() { modal-keys.focus(); }
+    public function close-modals() {
+        if (!root.busy) {
+            root.category-editor-open = false; root.new-product-open = false;
+            root.configuration-open = false; root.pending-id = ""; root.confirm-clear = false;
+        }
+    }
+
+    Rectangle {
+        x: 20px; y: 16px; width: parent.width - 40px; height: parent.height - 32px;
+        background: #272727; border-color: #3e3e3e; border-width: 1px; border-radius: 24px;
+        VerticalLayout {
+            padding: 22px; spacing: 16px;
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    spacing: 2px; horizontal-stretch: 1;
+                    Text { text: "Productos"; color: #fafafa; font-size: 30px; font-weight: 600; }
+                    Text { text: "Busca y selecciona productos de tu almacén"; color: #bdbdbd; font-size: 17px; }
+                }
+                Action { text: "+  Nuevo"; width: 132px; primary: true; enabled: root.can-act; clicked => { root.new-product-open = true; root.focus-modal(); } }
+                Action { text: "···"; width: 48px; accessible-name: "Administración y configuración"; quiet: true; enabled: root.can-act; clicked => { root.configuration-open = true; root.focus-modal(); } }
+            }
+            search := Entry {
+                text <=> root.search-text;
+                placeholder: "Buscar producto por nombre o ID...";
+                search: true; enabled: !root.modal-open;
+                edited => { root.search-edited(); }
+                accepted => { root.search-products(); }
+            }
+            if root.status != "": Text {
+                text: root.status; wrap: word-wrap; font-size: 17px;
+                color: root.has-error ? #ffb4ab : #8fdfad;
+            }
+            HorizontalLayout {
+                spacing: 16px; vertical-stretch: 1;
+                VerticalLayout {
+                    width: (parent.width - 16px) * 0.49; spacing: 10px;
+                    Text { text: "Categorías"; color: #f2f2f2; font-weight: 600; }
+                    Rectangle {
+                        background: transparent; border-color: #404040; border-width: 1px; border-radius: 18px;
+                        VerticalLayout {
+                            padding: 10px; spacing: 8px;
+                            Action { text: "Todos los productos"; left-align: true; quiet: true; horizontal-stretch: 1; enabled: root.can-act; clicked => { root.choose-category(""); } }
+                            Rectangle { height: 1px; background: #353535; }
+                            if root.category-count == 0 && !root.busy && !root.has-error: Text { text: "No hay categorías activas."; color: #bdbdbd; wrap: word-wrap; }
+                            tree := ScrollView {
+                                vertical-stretch: 1;
+                                horizontal-scrollbar-policy: always-off;
+                                content-width: self.visible-width;
+                                VerticalLayout {
+                                    spacing: 3px; padding-right: 8px; alignment: start;
+                                    for category in root.categories: TreeItem {
+                                        item: category; selected: category.id == root.category-id; enabled: root.can-act;
+                                        choose => { root.choose-category(category.id); }
+                                        toggle => { root.toggle-category(category.id); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1; spacing: 10px;
+                    Text { text: root.category-label; color: #f5f5f5; font-weight: 600; }
+                    if root.category-id != "": Text { text: root.category-title; wrap: word-wrap; color: #bdbdbd; font-size: 15px; }
+                    if root.busy: Text { text: "Cargando..."; color: #bdbdbd; }
+                    if root.product-count == 0 && !root.busy && !root.has-error: Rectangle {
+                        min-height: 176px; max-height: 176px;
+                        background: #292929; border-color: #404040; border-width: 1px; border-radius: 18px;
+                        VerticalLayout {
+                            padding: 18px; spacing: 12px; alignment: start;
+                            Text { text: root.search-text != "" ? "No encontramos productos con esa búsqueda." : root.category-id != "" ? "Esta categoría todavía no tiene productos." : "Todavía no hay productos activos."; wrap: word-wrap; color: #d0d0d0; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Action { text: "Ver todos"; enabled: root.can-act; clicked => { root.search-text = ""; root.choose-category(""); } }
+                                Action { text: "Agregar producto"; primary: true; enabled: root.can-act; clicked => { root.new-product-open = true; root.focus-modal(); } }
+                            }
+                        }
+                    }
+                    ScrollView {
+                        vertical-stretch: 1; horizontal-scrollbar-policy: always-off; content-width: self.visible-width;
+                        VerticalLayout {
+                            spacing: 10px; padding-right: 6px; alignment: start;
+                            for product in root.products: Rectangle {
+                                height: product.id == root.selected-id ? 188px : 138px;
+                                vertical-stretch: 0;
+                                background: product.id == root.selected-id ? #292d35 : #282828;
+                                border-color: product.id == root.selected-id ? #7d75a8 : #414141;
+                                border-width: 1px; border-radius: 18px;
+                                VerticalLayout {
+                                    padding: 16px; spacing: 10px; alignment: start;
+                                    Text { text: product.name; color: #f6f6f6; font-size: 21px; font-weight: 600; overflow: elide; }
+                                    Text { text: "ID " + product.id + " · " + product.category; color: #bfbfbf; font-size: 16px; overflow: elide; }
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Rectangle {
+                                            min-width: 68px; max-width: 68px; height: 28px; border-radius: 14px; background: #203f2d;
+                                            Text { text: "Activo"; color: #65dd8e; horizontal-alignment: center; vertical-alignment: center; font-size: 15px; }
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
+                                        Action { text: product.id == root.selected-id ? "✓ Seleccionado" : "Seleccionar"; quiet: true; enabled: root.can-act; clicked => { root.select-product(product.id); } }
+                                    }
+                                    if product.id == root.selected-id: HorizontalLayout {
+                                        spacing: 8px;
+                                        Action { text: "Cambiar categoría"; enabled: root.can-act; clicked => { root.confirm-clear = false; root.open-category-editor(); } }
+                                        Action { text: "Desactivar"; quiet: true; danger: true; enabled: root.can-act; clicked => { root.pending-id = product.id; root.pending-name = product.name; root.focus-modal(); } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if root.has-next || root.page-number > 1: HorizontalLayout {
+                        spacing: 8px;
+                        Action { text: "Anterior"; enabled: root.can-act && root.page-number > 1; clicked => { root.change-page(-1); } }
+                        Text { text: "Página " + root.page-number; color: #bdbdbd; vertical-alignment: center; font-size: 16px; }
+                        Action { text: "Siguiente"; enabled: root.can-act && root.has-next; clicked => { root.change-page(1); } }
+                    }
+                }
+            }
+        }
+    }
+
+    // La superposicion bloquea el raton; los controles del fondo quedan fuera del tabulado.
+    modal-keys := FocusScope {
+        visible: root.modal-open; enabled: root.modal-open;
+        width: parent.width; height: parent.height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape && !root.busy) {
+                root.close-modals();
+                return accept;
+            }
+            return reject;
+        }
+        Rectangle { width: parent.width; height: parent.height; background: #00000099; TouchArea { } }
+
+        if root.category-editor-open: Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: min(720px, parent.width - 64px); height: min(656px, parent.height - 48px);
+            background: #272727; border-color: #4b4b4b; border-width: 1px; border-radius: 22px;
+            VerticalLayout {
+                padding: 22px; spacing: 12px;
+                Text { text: "Cambiar categoría del producto"; font-size: 24px; font-weight: 600; color: #f5f5f5; }
+                Text { text: root.selected-name; color: #f1f1f1; font-size: 21px; font-weight: 600; }
+                Rectangle {
+                    min-height: 72px; max-height: 90px; border-radius: 12px; background: #333333;
+                    VerticalLayout { padding: 12px; spacing: 4px;
+                        Text { text: "Categoría actual"; color: #bfbfbf; font-size: 15px; }
+                        Text { text: root.selected-category-path; color: #f0f0f0; wrap: word-wrap; font-size: 18px; }
+                    }
+                }
+                Text { text: "Elige la nueva categoría"; color: #ececec; }
+                ScrollView {
+                    vertical-stretch: 1; horizontal-scrollbar-policy: always-off; content-width: self.visible-width;
+                    VerticalLayout {
+                        spacing: 2px; padding-right: 8px; alignment: start;
+                        for category in root.editor-categories: TreeItem {
+                            item: category; selected: category.id == root.editor-category-id; enabled: !root.busy && !root.confirm-clear;
+                            choose => { root.choose-editor-category(category.id); }
+                            toggle => { root.toggle-editor-category(category.id); }
+                        }
+                    }
+                }
+                Text { text: "Destino: " + root.editor-category-title; color: #c9b8f4; wrap: word-wrap; }
+                if root.has-error: Text { text: root.status; color: #ffb4ab; wrap: word-wrap; font-size: 16px; }
+                if root.confirm-clear: Text { text: "El producto quedará sin clasificación. ¿Confirmas el cambio?"; color: #f2cd99; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Action { text: root.confirm-clear ? "Sí, dejar sin categoría" : "Dejar sin categoría"; quiet: true; danger: root.confirm-clear; enabled: !root.busy && root.selected-category-id != ""; clicked => { if (root.confirm-clear) { root.update-product-category(""); } else { root.confirm-clear = true; } } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Action { text: "Cancelar"; enabled: !root.busy; clicked => { if (root.confirm-clear) { root.confirm-clear = false; } else { root.category-editor-open = false; } } }
+                    if !root.confirm-clear: Action { text: "Guardar cambio"; primary: true; enabled: !root.busy && root.editor-category-id != "" && root.editor-category-id != root.selected-category-id; clicked => { root.update-product-category(root.editor-category-id); } }
+                }
+            }
+        }
+
+        if root.new-product-open: Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: min(620px, parent.width - 64px); height: 300px; border-radius: 22px;
+            background: #272727; border-color: #4b4b4b; border-width: 1px;
+            VerticalLayout {
+                padding: 24px; spacing: 14px;
+                Text { text: "Nuevo producto"; color: #f5f5f5; font-size: 25px; font-weight: 600; }
+                Entry { text <=> root.product-name; placeholder: "Nombre del producto"; enabled: !root.busy; accepted => { if (!root.busy) { root.add-product(); } } }
+                Text { text: root.has-error ? root.status : "Se guardará sin categoría. Puedes clasificarlo después."; color: root.has-error ? #ffb4ab : #bdbdbd; wrap: word-wrap; font-size: 16px; }
+                HorizontalLayout {
+                    spacing: 10px; alignment: end;
+                    Action { text: "Cancelar"; enabled: !root.busy; clicked => { root.new-product-open = false; } }
+                    Action { text: "Guardar producto"; primary: true; enabled: !root.busy; clicked => { root.add-product(); } }
+                }
+            }
+        }
+
+        if root.pending-id != "": Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: 620px; height: 270px; background: #272727; border-radius: 22px; border-color: #4b4b4b; border-width: 1px;
+            VerticalLayout {
+                padding: 24px; spacing: 14px;
+                Text { text: "Desactivar producto"; color: #f5f5f5; font-size: 25px; font-weight: 600; }
+                Text { text: "¿Desactivar " + root.pending-name + "? El registro se conservará."; color: #d0d0d0; wrap: word-wrap; }
+                if root.has-error: Text { text: root.status; color: #ffb4ab; wrap: word-wrap; font-size: 16px; }
+                HorizontalLayout {
+                    spacing: 10px; alignment: end;
+                    Action { text: "Cancelar"; enabled: !root.busy; clicked => { root.pending-id = ""; } }
+                    Action { text: "Sí, desactivar"; danger: true; enabled: !root.busy; clicked => { root.deactivate-product(root.pending-id); root.pending-id = ""; } }
+                }
+            }
+        }
+
+        if root.configuration-open: Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: min(680px, parent.width - 64px); height: min(560px, parent.height - 64px);
+            background: #272727; border-radius: 22px; border-color: #4b4b4b; border-width: 1px;
+            VerticalLayout {
+                padding: 24px; spacing: 14px;
+                Text { text: "Configuración y diagnóstico"; color: #f5f5f5; font-size: 25px; font-weight: 600; }
+                Text { text: "Base de datos local"; color: #bdbdbd; }
+                Text { text: root.database-path; wrap: char-wrap; color: #e0e0e0; font-size: 16px; }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Action { text: "Actualizar lista"; enabled: !root.busy; clicked => { root.refresh-products(); } }
+                    Action { text: "Comprobar apertura"; enabled: !root.busy; clicked => { root.check-storage(); } }
+                }
+                if root.status != "": Text { text: root.status; wrap: word-wrap; color: root.has-error ? #ffb4ab : #8fdfad; font-size: 16px; }
+                Action { text: "Acerca de Slint"; quiet: true; clicked => { root.show-about = !root.show-about; } }
+                if root.show-about: AboutSlint { }
+                Rectangle { vertical-stretch: 1; }
+                Action { text: "Cerrar"; primary: true; enabled: !root.busy; clicked => { root.configuration-open = false; } }
+            }
+        }
+    }
+}
